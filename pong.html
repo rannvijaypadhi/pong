@@ -12,7 +12,6 @@
     overflow: hidden;
   }
 
-  /* ---------- TITLE SCREEN ---------- */
   #titleScreen {
     position: absolute;
     inset: 0;
@@ -22,7 +21,6 @@
     justify-content: center;
     align-items: center;
     gap: 25px;
-    transition: opacity 0.5s ease;
   }
 
   #titleScreen h1 {
@@ -49,7 +47,6 @@
     transform: scale(1.05);
   }
 
-  /* ---------- GAME CANVAS ---------- */
   #game {
     display: none;
     background: #111;
@@ -60,7 +57,6 @@
     transform: translate(-50%, -50%);
   }
 
-  /* ---------- ROOM UI ---------- */
   #roomUI {
     display: none;
     position: absolute;
@@ -102,7 +98,6 @@
     opacity: 0.8;
   }
 
-  /* ---------- SCORE UI ---------- */
   #scoreUI {
     position: absolute;
     top: 20px;
@@ -116,7 +111,6 @@
 </head>
 <body>
 
-<!-- TITLE SCREEN -->
 <div id="titleScreen">
   <h1>PONG</h1>
   <button class="menuBtn" id="onePlayerBtn">1 Player (vs BOT)</button>
@@ -124,7 +118,6 @@
   <button class="menuBtn" id="twoOnlineBtn">2 Player Online</button>
 </div>
 
-<!-- ROOM UI -->
 <div id="roomUI">
   <h2>Online Match</h2>
   <input id="roomCode" placeholder="Room Code (ABC123)">
@@ -133,54 +126,31 @@
   <div id="status"></div>
 </div>
 
-<!-- SCORE -->
 <div id="scoreUI">0 : 0</div>
 
-<!-- GAME CANVAS -->
 <canvas id="game" width="800" height="500"></canvas>
 
 <script>
-/* -------------------------
-      ELEMENTS
---------------------------*/
 const titleScreen = document.getElementById("titleScreen");
 const roomUI = document.getElementById("roomUI");
 const gameCanvas = document.getElementById("game");
 const scoreUI = document.getElementById("scoreUI");
 const ctx = gameCanvas.getContext("2d");
 
-/* -------------------------
-      MENU BUTTONS
---------------------------*/
-document.getElementById("onePlayerBtn").onclick = () => startGame("bot");
-document.getElementById("twoLocalBtn").onclick = () => startGame("local");
-document.getElementById("twoOnlineBtn").onclick = () => {
-  titleScreen.style.display = "none";
-  roomUI.style.display = "flex";
-};
+const onePlayerBtn = document.getElementById("onePlayerBtn");
+const twoLocalBtn = document.getElementById("twoLocalBtn");
+const twoOnlineBtn = document.getElementById("twoOnlineBtn");
+const roomCodeInput = document.getElementById("roomCode");
+const createRoomBtn = document.getElementById("createRoom");
+const joinRoomBtn = document.getElementById("joinRoom");
+const statusEl = document.getElementById("status");
 
-/* -------------------------
-      GAME STARTER
---------------------------*/
 let mode = "local";
+let socket = null;
+let inRoom = false;
+let playerIndex = null;
+let isHost = false;
 
-function startGame(m) {
-  mode = m;
-  titleScreen.style.display = "none";
-  roomUI.style.display = "none";
-  gameCanvas.style.display = "block";
-  scoreUI.style.display = "block";
-
-  resetGame();
-
-  if (mode === "bot") initBotMode();
-  if (mode === "local") initLocalMode();
-  if (mode === "online") initOnlineMode();
-}
-
-/* -------------------------
-      GAME ENGINE
---------------------------*/
 const W = gameCanvas.width;
 const H = gameCanvas.height;
 
@@ -196,34 +166,49 @@ const ball = { x: W/2, y: H/2, size: 12, dx: 5, dy: 4 };
 let scoreL = 0;
 let scoreR = 0;
 
-function resetGame() {
-  left.y = H/2 - paddleH/2;
-  right.y = H/2 - paddleH/2;
+function resetBall() {
   ball.x = W/2;
   ball.y = H/2;
   ball.dx = Math.random() > 0.5 ? 5 : -5;
   ball.dy = (Math.random() * 4 + 2) * (Math.random() > 0.5 ? 1 : -1);
 }
 
+function resetGame() {
+  left.y = H/2 - paddleH/2;
+  right.y = H/2 - paddleH/2;
+  scoreL = 0;
+  scoreR = 0;
+  resetBall();
+}
+
 const keys = {};
 document.addEventListener("keydown", e => keys[e.key] = true);
 document.addEventListener("keyup", e => keys[e.key] = false);
 
-/* -------------------------
-      BOT AI
---------------------------*/
+onePlayerBtn.onclick = () => startGame("bot");
+twoLocalBtn.onclick = () => startGame("local");
+twoOnlineBtn.onclick = () => {
+  mode = "online";
+  titleScreen.style.display = "none";
+  roomUI.style.display = "flex";
+};
+
+function startGame(m) {
+  mode = m;
+  titleScreen.style.display = "none";
+  roomUI.style.display = "none";
+  gameCanvas.style.display = "block";
+  scoreUI.style.display = "block";
+  resetGame();
+}
+
 function botAI() {
   const target = ball.y - paddleH/2 + ball.size/2;
   const diff = target - right.y;
-
-  right.y += diff * 0.08; // smooth tracking
+  right.y += diff * 0.08;
 }
 
-/* -------------------------
-      UPDATE
---------------------------*/
-function update() {
-  // Player movement
+function updateLocal() {
   if (mode !== "online") {
     if (keys["w"]) left.y -= paddleSpeed;
     if (keys["s"]) left.y += paddleSpeed;
@@ -239,13 +224,11 @@ function update() {
   left.y = Math.max(0, Math.min(H - paddleH, left.y));
   right.y = Math.max(0, Math.min(H - paddleH, right.y));
 
-  // Ball movement
   ball.x += ball.dx;
   ball.y += ball.dy;
 
   if (ball.y <= 0 || ball.y + ball.size >= H) ball.dy *= -1;
 
-  // Paddle collisions
   if (ball.x <= left.x + paddleW &&
       ball.y + ball.size >= left.y &&
       ball.y <= left.y + paddleH) ball.dx = Math.abs(ball.dx);
@@ -254,44 +237,148 @@ function update() {
       ball.y + ball.size >= right.y &&
       ball.y <= right.y + paddleH) ball.dx = -Math.abs(ball.dx);
 
-  // Scoring
-  if (ball.x < 0) { scoreR++; resetGame(); }
-  if (ball.x > W) { scoreL++; resetGame(); }
+  if (ball.x < 0) { scoreR++; resetBall(); }
+  if (ball.x > W) { scoreL++; resetBall(); }
 
   scoreUI.textContent = `${scoreL} : ${scoreR}`;
 }
 
-/* -------------------------
-      DRAW
---------------------------*/
+function updateOnline() {
+  if (!inRoom) return;
+
+  if (playerIndex === 0) {
+    if (keys["w"]) left.y -= paddleSpeed;
+    if (keys["s"]) left.y += paddleSpeed;
+  } else if (playerIndex === 1) {
+    if (keys["ArrowUp"]) right.y -= paddleSpeed;
+    if (keys["ArrowDown"]) right.y += paddleSpeed;
+  }
+
+  left.y = Math.max(0, Math.min(H - paddleH, left.y));
+  right.y = Math.max(0, Math.min(H - paddleH, right.y));
+
+  if (isHost) {
+    ball.x += ball.dx;
+    ball.y += ball.dy;
+
+    if (ball.y <= 0 || ball.y + ball.size >= H) ball.dy *= -1;
+
+    if (ball.x <= left.x + paddleW &&
+        ball.y + ball.size >= left.y &&
+        ball.y <= left.y + paddleH) ball.dx = Math.abs(ball.dx);
+
+    if (ball.x + ball.size >= right.x &&
+        ball.y + ball.size >= right.y &&
+        ball.y <= right.y + paddleH) ball.dx = -Math.abs(ball.dx);
+
+    if (ball.x < 0) { scoreR++; resetBall(); }
+    if (ball.x > W) { scoreL++; resetBall(); }
+
+    scoreUI.textContent = `${scoreL} : ${scoreR}`;
+
+    sendWS({
+      type: "state",
+      state: {
+        ball: { x: ball.x, y: ball.y },
+        left: { y: left.y },
+        right: { y: right.y },
+        scoreL,
+        scoreR
+      }
+    });
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = "white";
-
   ctx.fillRect(left.x, left.y, paddleW, paddleH);
   ctx.fillRect(right.x, right.y, paddleW, paddleH);
   ctx.fillRect(ball.x, ball.y, ball.size, ball.size);
 }
 
-/* -------------------------
-      GAME LOOP
---------------------------*/
 function loop() {
-  update();
+  if (mode === "local" || mode === "bot") {
+    updateLocal();
+  } else if (mode === "online") {
+    updateOnline();
+  }
   draw();
   requestAnimationFrame(loop);
 }
-
 loop();
 
-/* -------------------------
-      ONLINE MODE HOOKS
---------------------------*/
-function initOnlineMode() {
-  // You already have the server.js
-  // Plug your WebSocket logic here
-}
-</script>
+/* ---------- ONLINE (Render) ---------- */
 
+function connectWS() {
+  // Replace YOUR_SERVICE_NAME with your Render hostname, e.g. pong.onrender.com
+  socket = new WebSocket("wss://YOUR_SERVICE_NAME");
+
+  socket.onopen = () => {
+    statusEl.textContent = "Connected. Enter a room code.";
+  };
+
+  socket.onmessage = e => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === "error") {
+      statusEl.textContent = "Error: " + data.message;
+    }
+
+    if (data.type === "joined") {
+      inRoom = true;
+      playerIndex = data.playerIndex;
+      isHost = (playerIndex === 0);
+      statusEl.textContent = `In room ${data.code} as Player ${playerIndex + 1}`;
+      roomUI.style.display = "none";
+      gameCanvas.style.display = "block";
+      scoreUI.style.display = "block";
+      resetGame();
+    }
+
+    if (data.type === "ready") {
+      statusEl.textContent = "Both players ready. Game starting!";
+    }
+
+    if (data.type === "state") {
+      const s = data.state;
+      ball.x = s.ball.x;
+      ball.y = s.ball.y;
+      left.y = s.left.y;
+      right.y = s.right.y;
+      scoreL = s.scoreL;
+      scoreR = s.scoreR;
+      scoreUI.textContent = `${scoreL} : ${scoreR}`;
+    }
+  };
+
+  socket.onclose = () => {
+    statusEl.textContent = "Disconnected from server.";
+    inRoom = false;
+  };
+}
+
+function sendWS(obj) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(obj));
+  }
+}
+
+createRoomBtn.onclick = () => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) connectWS();
+  const code = roomCodeInput.value.trim() || "ROOM";
+  sendWS({ type: "create", code });
+};
+
+joinRoomBtn.onclick = () => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) connectWS();
+  const code = roomCodeInput.value.trim();
+  if (!code) {
+    statusEl.textContent = "Enter a room code to join.";
+    return;
+  }
+  sendWS({ type: "join", code });
+};
+</script>
 </body>
 </html>

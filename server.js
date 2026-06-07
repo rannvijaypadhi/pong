@@ -1,6 +1,18 @@
-const WebSocket = require("ws");
-const wss = new WebSocket.Server({ port: 8080 });
+// Render‑Optimized Pong WebSocket Server
 
+const http = require("http");
+const WebSocket = require("ws");
+
+// Render gives you a dynamic port:
+const PORT = process.env.PORT || 8080;
+
+// Create HTTP server (required for Render WebSocket routing)
+const server = http.createServer();
+
+// Attach WebSocket server to HTTP server
+const wss = new WebSocket.Server({ server });
+
+// Room storage
 const rooms = new Map(); // roomCode -> { players: [ws, ws] }
 
 function send(ws, obj) {
@@ -17,6 +29,7 @@ wss.on("connection", ws => {
     let data;
     try { data = JSON.parse(msg); } catch { return; }
 
+    // Create room
     if (data.type === "create") {
       const code = data.code;
       if (rooms.has(code)) {
@@ -28,6 +41,7 @@ wss.on("connection", ws => {
       send(ws, { type: "joined", code, playerIndex: 0 });
     }
 
+    // Join room
     if (data.type === "join") {
       const code = data.code;
       const room = rooms.get(code);
@@ -40,14 +54,16 @@ wss.on("connection", ws => {
       room.players.push(ws);
       ws.roomCode = code;
       ws.playerIndex = 1;
+
       send(ws, { type: "joined", code, playerIndex: 1 });
-      // notify both players game can start
+
+      // Notify both players
       room.players.forEach((p, idx) =>
         send(p, { type: "ready", playerIndex: idx })
       );
     }
 
-    // relay game messages inside room
+    // Relay game state
     if (data.type === "state" && ws.roomCode) {
       const room = rooms.get(ws.roomCode);
       if (!room) return;
@@ -74,4 +90,7 @@ wss.on("connection", ws => {
   });
 });
 
-console.log("Server running on ws://localhost:8080");
+// Start server (Render will detect the port)
+server.listen(PORT, () => {
+  console.log("WebSocket server running on port " + PORT);
+});
