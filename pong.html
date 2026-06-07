@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pong</title>
+<style>
+  body {
+    margin: 0;
+    background: #0d0d0d;
+    font-family: Arial, sans-serif;
+    color: white;
+    overflow: hidden;
+  }
+
+  /* ---------- TITLE SCREEN ---------- */
+  #titleScreen {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, #0d0d0d, #1a1a1a);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 25px;
+    transition: opacity 0.5s ease;
+  }
+
+  #titleScreen h1 {
+    font-size: 60px;
+    letter-spacing: 4px;
+    margin-bottom: 20px;
+    text-shadow: 0 0 20px #00eaff;
+  }
+
+  .menuBtn {
+    padding: 15px 40px;
+    font-size: 22px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background: #00aaff;
+    color: black;
+    font-weight: bold;
+    transition: 0.2s;
+  }
+
+  .menuBtn:hover {
+    background: #00eaff;
+    transform: scale(1.05);
+  }
+
+  /* ---------- GAME CANVAS ---------- */
+  #game {
+    display: none;
+    background: #111;
+    border: 3px solid white;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  /* ---------- ROOM UI ---------- */
+  #roomUI {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(4px);
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+  }
+
+  #roomUI input {
+    padding: 10px;
+    font-size: 18px;
+    width: 250px;
+    border-radius: 6px;
+    border: none;
+  }
+
+  #roomUI button {
+    padding: 10px 25px;
+    font-size: 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: #00aaff;
+    color: black;
+    font-weight: bold;
+  }
+
+  #roomUI button:hover {
+    background: #00eaff;
+  }
+
+  #status {
+    margin-top: 10px;
+    font-size: 18px;
+    opacity: 0.8;
+  }
+
+  /* ---------- SCORE UI ---------- */
+  #scoreUI {
+    position: absolute;
+    top: 20px;
+    width: 100%;
+    text-align: center;
+    font-size: 32px;
+    letter-spacing: 4px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- TITLE SCREEN -->
+<div id="titleScreen">
+  <h1>PONG</h1>
+  <button class="menuBtn" id="onePlayerBtn">1 Player (vs BOT)</button>
+  <button class="menuBtn" id="twoLocalBtn">2 Player Local</button>
+  <button class="menuBtn" id="twoOnlineBtn">2 Player Online</button>
+</div>
+
+<!-- ROOM UI -->
+<div id="roomUI">
+  <h2>Online Match</h2>
+  <input id="roomCode" placeholder="Room Code (ABC123)">
+  <button id="createRoom">Create Room</button>
+  <button id="joinRoom">Join Room</button>
+  <div id="status"></div>
+</div>
+
+<!-- SCORE -->
+<div id="scoreUI">0 : 0</div>
+
+<!-- GAME CANVAS -->
+<canvas id="game" width="800" height="500"></canvas>
+
+<script>
+/* -------------------------
+      ELEMENTS
+--------------------------*/
+const titleScreen = document.getElementById("titleScreen");
+const roomUI = document.getElementById("roomUI");
+const gameCanvas = document.getElementById("game");
+const scoreUI = document.getElementById("scoreUI");
+const ctx = gameCanvas.getContext("2d");
+
+/* -------------------------
+      MENU BUTTONS
+--------------------------*/
+document.getElementById("onePlayerBtn").onclick = () => startGame("bot");
+document.getElementById("twoLocalBtn").onclick = () => startGame("local");
+document.getElementById("twoOnlineBtn").onclick = () => {
+  titleScreen.style.display = "none";
+  roomUI.style.display = "flex";
+};
+
+/* -------------------------
+      GAME STARTER
+--------------------------*/
+let mode = "local";
+
+function startGame(m) {
+  mode = m;
+  titleScreen.style.display = "none";
+  roomUI.style.display = "none";
+  gameCanvas.style.display = "block";
+  scoreUI.style.display = "block";
+
+  resetGame();
+
+  if (mode === "bot") initBotMode();
+  if (mode === "local") initLocalMode();
+  if (mode === "online") initOnlineMode();
+}
+
+/* -------------------------
+      GAME ENGINE
+--------------------------*/
+const W = gameCanvas.width;
+const H = gameCanvas.height;
+
+const paddleW = 12;
+const paddleH = 90;
+const paddleSpeed = 6;
+
+const left = { x: 20, y: H/2 - paddleH/2 };
+const right = { x: W - 20 - paddleW, y: H/2 - paddleH/2 };
+
+const ball = { x: W/2, y: H/2, size: 12, dx: 5, dy: 4 };
+
+let scoreL = 0;
+let scoreR = 0;
+
+function resetGame() {
+  left.y = H/2 - paddleH/2;
+  right.y = H/2 - paddleH/2;
+  ball.x = W/2;
+  ball.y = H/2;
+  ball.dx = Math.random() > 0.5 ? 5 : -5;
+  ball.dy = (Math.random() * 4 + 2) * (Math.random() > 0.5 ? 1 : -1);
+}
+
+const keys = {};
+document.addEventListener("keydown", e => keys[e.key] = true);
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+/* -------------------------
+      BOT AI
+--------------------------*/
+function botAI() {
+  const target = ball.y - paddleH/2 + ball.size/2;
+  const diff = target - right.y;
+
+  right.y += diff * 0.08; // smooth tracking
+}
+
+/* -------------------------
+      UPDATE
+--------------------------*/
+function update() {
+  // Player movement
+  if (mode !== "online") {
+    if (keys["w"]) left.y -= paddleSpeed;
+    if (keys["s"]) left.y += paddleSpeed;
+  }
+
+  if (mode === "local") {
+    if (keys["ArrowUp"]) right.y -= paddleSpeed;
+    if (keys["ArrowDown"]) right.y += paddleSpeed;
+  }
+
+  if (mode === "bot") botAI();
+
+  left.y = Math.max(0, Math.min(H - paddleH, left.y));
+  right.y = Math.max(0, Math.min(H - paddleH, right.y));
+
+  // Ball movement
+  ball.x += ball.dx;
+  ball.y += ball.dy;
+
+  if (ball.y <= 0 || ball.y + ball.size >= H) ball.dy *= -1;
+
+  // Paddle collisions
+  if (ball.x <= left.x + paddleW &&
+      ball.y + ball.size >= left.y &&
+      ball.y <= left.y + paddleH) ball.dx = Math.abs(ball.dx);
+
+  if (ball.x + ball.size >= right.x &&
+      ball.y + ball.size >= right.y &&
+      ball.y <= right.y + paddleH) ball.dx = -Math.abs(ball.dx);
+
+  // Scoring
+  if (ball.x < 0) { scoreR++; resetGame(); }
+  if (ball.x > W) { scoreL++; resetGame(); }
+
+  scoreUI.textContent = `${scoreL} : ${scoreR}`;
+}
+
+/* -------------------------
+      DRAW
+--------------------------*/
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "white";
+
+  ctx.fillRect(left.x, left.y, paddleW, paddleH);
+  ctx.fillRect(right.x, right.y, paddleW, paddleH);
+  ctx.fillRect(ball.x, ball.y, ball.size, ball.size);
+}
+
+/* -------------------------
+      GAME LOOP
+--------------------------*/
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+/* -------------------------
+      ONLINE MODE HOOKS
+--------------------------*/
+function initOnlineMode() {
+  // You already have the server.js
+  // Plug your WebSocket logic here
+}
+</script>
+
+</body>
+</html>
